@@ -1,0 +1,187 @@
+
+//////////////////////////////////////////////
+//        RemoteXY include library          //
+//////////////////////////////////////////////
+
+// you can enable debug logging to Serial at 115200
+//#define REMOTEXY__DEBUGLOG    
+
+// RemoteXY select connection mode and include library 
+#define REMOTEXY_MODE__WIFI_POINT
+
+#include <WiFi.h>
+
+// RemoteXY connection settings 
+#define REMOTEXY_WIFI_SSID "RemoteXY"
+#define REMOTEXY_WIFI_PASSWORD "123456789"
+#define REMOTEXY_SERVER_PORT 6377
+
+
+
+#include <RemoteXY.h>
+
+// RemoteXY GUI configuration  
+#pragma pack(push, 1)  
+uint8_t RemoteXY_CONF[] =   // 86 bytes
+  { 255,5,0,0,0,79,0,19,0,0,0,0,28,2,106,200,200,84,1,1,
+  5,0,1,20,32,24,24,124,36,19,19,0,12,31,0,1,49,95,45,45,
+  156,36,19,19,0,12,31,0,4,60,160,42,14,44,46,59,16,176,12,26,
+  1,49,91,45,45,13,16,19,19,0,12,31,0,1,246,43,45,45,13,43,
+  19,19,0,12,31,0 };
+  
+// this structure defines all the variables and events of your control interface 
+struct {
+
+    // input variables
+  uint8_t button_lft; // =1 if button pressed, else =0, from 0 to 1
+  uint8_t button_rgt; // =1 if button pressed, else =0, from 0 to 1
+  int8_t slider_centre; // from -100 to 100
+  uint8_t button_fwd; // =1 if button pressed, else =0, from 0 to 1
+  uint8_t button_bwd; // =1 if button pressed, else =0, from 0 to 1
+
+    // other variable
+  uint8_t connect_flag;  // =1 if wire connected, else =0
+
+} RemoteXY;   
+#pragma pack(pop)
+ 
+/////////////////////////////////////////////
+//           END RemoteXY include          //
+/////////////////////////////////////////////
+
+
+//left motor pins
+#define leftMotorSpeedPin  27  // D4
+#define leftMotorDir1Pin 25  // D2
+#define leftMotorDir2Pin 26  // D1
+
+// right motor pins
+#define rightMotorSpeedPin  14  // D5
+#define rightMotorDir1Pin 12  // D6
+#define rightMotorDir2Pin 13  // D7
+
+
+void setup() {
+  RemoteXY_Init (); 
+  //This starts the connection between your car and the RemoteXY app on your phone.
+  //Init” stands for initialize — which means set up and start.
+	//	It makes the ESP32:
+	//	Create the Wi-Fi hotspot (with name and password you wrote earlier).
+	//  Start listening for the phone to connect.
+	//  Prepare all RemoteXY variables (like button_fwd, slider_centre) so they’re ready to use.
+
+  init_pinout(); 
+  // This runs another small function you wrote later (the one that says which pins control the motors).
+  // the function pinMode(pinNumber, OUTPUT);
+  // Which simply tells the ESP32:
+  // “These pins will be used to send signals (not receive).”
+  // So, this line prepares your pins for controlling the motor driver.
+  // Without it, the ESP32 wouldn’t know which pins it’s supposed to send commands through.
+  Serial.begin(9600);
+}
+
+void loop() { 
+  RemoteXY_Handler ();
+
+  Handler(RemoteXY.button_lft, RemoteXY.button_rgt, RemoteXY.button_fwd, RemoteXY.button_bwd, RemoteXY.slider_centre);
+  // the brain that decides how to move
+  // Alternatively you can put your code here instead of Handler function, but Handler keeps it clean
+  
+  // do not call delay(), use instead RemoteXY_delay() 
+}
+// Set up all motor pins as OUTPUTs (they send signals)
+void init_pinout() {
+  // motor 1
+  pinMode(leftMotorSpeedPin,  OUTPUT);
+  pinMode(leftMotorDir1Pin, OUTPUT);
+  pinMode(leftMotorDir2Pin, OUTPUT);
+
+  // motor 2
+  pinMode(rightMotorSpeedPin,  OUTPUT);
+  pinMode(rightMotorDir1Pin, OUTPUT);
+  pinMode(rightMotorDir2Pin, OUTPUT);
+
+
+}
+
+
+/////////////////////////////////////////////
+//             The Driver                  //
+/////////////////////////////////////////////
+// This function decides what the car should do based on button presses
+void Handler(int leftButton, int rightButton, int forwardButton, int backwardButton, int slider) {
+  int driveSpeed = 255;  // Fwd/ Bwd Speed
+  int turnSpeed = 255; // Turn Speed(can be lower if you want smooth turns)
+
+  // Priority to val2 for turning...why? (I want to make sure if i tell to turn it turns)
+  // going forward is normal but turning is urgent.
+
+  if (leftButton) {  // Turn right
+    forward_motor1(turnSpeed);    // Motor 1(left) moves forward
+    backward_motor2(turnSpeed);   // Motor 2(Right) moves backward
+    Serial.println("Turn right");
+  } 
+  else if (rightButton) {  // Turn left
+    backward_motor1(turnSpeed);   // Motor 1(left) moves backward
+    forward_motor2(turnSpeed);    // Motor 2(right) moves forward
+    Serial.println("Turn Left");
+  } 
+  
+  //********** Fwd/Bwd Logic **********//
+  else {
+    // If not turning, check val1 for forward/backward motion
+    if (forwardButton) {  // Move both motors forward
+      forward_motor1(driveSpeed); // left Motor
+      forward_motor2(driveSpeed); // right Motor
+      Serial.println("Forward");
+
+    } else if (backwardButton) {  // Move both motors backward
+      backward_motor1(driveSpeed); //left motor
+      backward_motor2(driveSpeed); //right motor
+      Serial.println("Backward");
+    } else {
+      // Stop motors if both val1 and val2 are 0
+      stopMotors();
+    }
+  }
+}
+
+
+/////////////////////////////////////////////
+//        Motor controller Funtions        //
+/////////////////////////////////////////////
+//left motor go forward
+void forward_motor1(int speed) {
+  analogWrite(leftMotorSpeedPin, speed);    // Set PWM speed for motor 1
+  digitalWrite(leftMotorDir1Pin, LOW);     // Forward direction for motor 1
+  digitalWrite(leftMotorDir2Pin, HIGH);
+}
+//left motor go backward
+void backward_motor1(int speed) {
+  analogWrite(leftMotorSpeedPin, speed);    // Set PWM speed for motor 1
+  digitalWrite(leftMotorDir1Pin, HIGH);    // Backward direction for motor 1
+  digitalWrite(leftMotorDir2Pin, LOW);
+}
+// right motor go forward
+void forward_motor2(int speed) {
+  analogWrite(rightMotorSpeedPin, speed);    // Set PWM speed for motor 2
+  digitalWrite(rightMotorDir1Pin, LOW);    // Forward direction for motor 2
+  digitalWrite(rightMotorDir2Pin, HIGH);
+}
+//right motor go backward
+void backward_motor2(int speed) {
+  analogWrite(rightMotorSpeedPin, speed);    // Set PWM speed for motor 2
+  digitalWrite(rightMotorDir1Pin, HIGH);   // Backward direction for motor 2
+  digitalWrite(rightMotorDir2Pin, LOW);
+}
+
+void stopMotors() { //to stop the motor
+  // Stop both motors
+  digitalWrite(leftMotorDir1Pin, LOW);
+  digitalWrite(leftMotorDir2Pin, LOW);
+  analogWrite(leftMotorSpeedPin, 0);
+
+  digitalWrite(rightMotorDir1Pin, LOW);
+  digitalWrite(rightMotorDir2Pin, LOW);
+  analogWrite(rightMotorSpeedPin, 0);
+}
