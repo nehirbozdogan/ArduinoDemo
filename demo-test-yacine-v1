@@ -1,0 +1,101 @@
+//////////////////////////////////////////////
+//        RemoteXY include library          //
+//////////////////////////////////////////////
+
+#define REMOTEXY_MODE__WIFI_POINT
+#include <WiFi.h>
+
+// RemoteXY connection settings
+#define REMOTEXY_WIFI_SSID "RemoteXY"
+#define REMOTEXY_WIFI_PASSWORD "123456789"
+#define REMOTEXY_SERVER_PORT 6377
+
+#include <RemoteXY.h>
+
+// CORRECT CONFIGURATION BYTES FOR SINGLE JOYSTICK
+#pragma pack(push, 1)
+uint8_t RemoteXY_CONF[] =
+  { 255, 3, 0, 0, 0, 29, 0, 16, 13, 0, 5, 15, 49, 9, 43, 43, 1, 26, 31, 2,
+    0, 6, 7, 32, 15, 5, 26, 31, 31, 79, 78, 0, 79, 70, 70, 0 };
+#pragma pack(pop)
+
+// STRUCT - MATCHES THE CONFIGURATION
+struct {
+  // input variables
+  int8_t joystick_1_x;     // from -100 to 100
+  int8_t joystick_1_y;     // from -100 to 100
+  uint8_t switch_1;        // =1 if ON, =0 if OFF
+  
+  // other variable
+  uint8_t connect_flag;    // =1 if connected, else =0
+} RemoteXY;
+
+#pragma pack(pop)
+
+/////////////////////////////////////////////
+//           END RemoteXY include          //
+/////////////////////////////////////////////
+
+// Motor pins
+#define PIN_MOTOR_RIGHT_UP 12    // DIR1
+#define PIN_MOTOR_RIGHT_DN 13    // DIR2
+#define PIN_MOTOR_RIGHT_SPEED 14 // SPEED (PWM)
+
+#define PIN_MOTOR_LEFT_UP 25     // DIR1
+#define PIN_MOTOR_LEFT_DN 26     // DIR2
+#define PIN_MOTOR_LEFT_SPEED 27  // SPEED (PWM)
+
+// Motor arrays
+uint8_t RightMotor[3] = {PIN_MOTOR_RIGHT_UP, PIN_MOTOR_RIGHT_DN, PIN_MOTOR_RIGHT_SPEED};
+uint8_t LeftMotor[3] = {PIN_MOTOR_LEFT_UP, PIN_MOTOR_LEFT_DN, PIN_MOTOR_LEFT_SPEED};
+
+// Motor control function
+void MotorSpeed(uint8_t *motor, int speed) {
+  // Clamp speed to -100 to 100
+  if (speed > 100) speed = 100;
+  if (speed < -100) speed = -100;
+  
+  if (speed > 0) {  // Forward
+    digitalWrite(motor[0], HIGH);
+    digitalWrite(motor[1], LOW);
+    analogWrite(motor[2], speed * 2.55);  // Convert 0-100 to 0-255
+  } 
+  else if (speed < 0) {  // Backward
+    digitalWrite(motor[0], LOW);
+    digitalWrite(motor[1], HIGH);
+    analogWrite(motor[2], (-speed) * 2.55);
+  } 
+  else {  // Stop
+    digitalWrite(motor[0], LOW);
+    digitalWrite(motor[1], LOW);
+    analogWrite(motor[2], 0);
+  }
+}
+
+void setup() {
+  // Initialize motor pins as OUTPUT
+  pinMode(PIN_MOTOR_RIGHT_UP, OUTPUT);
+  pinMode(PIN_MOTOR_RIGHT_DN, OUTPUT);
+  pinMode(PIN_MOTOR_LEFT_UP, OUTPUT);
+  pinMode(PIN_MOTOR_LEFT_DN, OUTPUT);
+  
+  // Initialize RemoteXY
+  RemoteXY_Init();
+  
+  Serial.begin(9600);
+}
+
+void loop() {
+  // RemoteXY handler
+  RemoteXY_Handler();
+  
+  // Calculate motor speeds using joystick values
+  // Y-axis controls forward/backward
+  // X-axis controls left/right turning
+  int rightMotorSpeed = RemoteXY.joystick_1_y - RemoteXY.joystick_1_x;
+  int leftMotorSpeed = RemoteXY.joystick_1_y + RemoteXY.joystick_1_x;
+  
+  // Apply motor speeds
+  MotorSpeed(RightMotor, rightMotorSpeed);
+  MotorSpeed(LeftMotor, leftMotorSpeed);
+}
