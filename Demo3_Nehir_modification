@@ -1,0 +1,157 @@
+//////////////////////////////////////////////
+//        RemoteXY include library          //
+//////////////////////////////////////////////
+
+#define REMOTEXY_MODE__WIFI_POINT
+#include <WiFi.h>
+
+// RemoteXY connection settings
+#define REMOTEXY_WIFI_SSID "RemoteXY"
+#define REMOTEXY_WIFI_PASSWORD "123456789"
+#define REMOTEXY_SERVER_PORT 6377
+
+#include <RemoteXY.h>
+
+// GUI configuration for one joystick + switch
+#pragma pack(push, 1)
+uint8_t RemoteXY_CONF[] =
+  { 255, 3, 0, 0, 0, 29, 0, 16, 13, 0, 5, 15, 49, 9, 43, 43, 1, 26, 31, 2,
+    0, 6, 7, 32, 15, 5, 26, 31, 31, 79, 78, 0, 79, 70, 70, 0 };
+#pragma pack(pop)
+
+// Structure holding data from the RemoteXY app
+struct {
+  int8_t joystick_1_x;     // from -100 to 100 (left/right)
+  int8_t joystick_1_y;     // from -100 to 100 (forward/backward)
+  uint8_t switch_1;        // example switch (not used yet)
+  uint8_t connect_flag;    // =1 if connected, else 0
+} RemoteXY;
+
+/////////////////////////////////////////////
+//           END RemoteXY include          //
+/////////////////////////////////////////////
+
+// Motor pin setup
+#define PIN_MOTOR_RIGHT_UP 12
+#define PIN_MOTOR_RIGHT_DN 13
+#define PIN_MOTOR_RIGHT_SPEED 14
+
+#define PIN_MOTOR_LEFT_UP 25
+#define PIN_MOTOR_LEFT_DN 26
+#define PIN_MOTOR_LEFT_SPEED 27
+
+// Arrays to make MotorSpeed() easier to use
+uint8_t RightMotor[3] = {PIN_MOTOR_RIGHT_UP, PIN_MOTOR_RIGHT_DN, PIN_MOTOR_RIGHT_SPEED};
+uint8_t LeftMotor[3]  = {PIN_MOTOR_LEFT_UP,  PIN_MOTOR_LEFT_DN,  PIN_MOTOR_LEFT_SPEED};
+
+// Helper function to limit numbers (so they stay between -100 and 100)
+int limitNumber(int value, int minValue, int maxValue) {
+  if (value < minValue) return minValue;
+  if (value > maxValue) return maxValue;
+  return value;
+}
+void stopMotors() {
+  // Right
+  digitalWrite(PIN_MOTOR_RIGHT_UP, LOW);
+  digitalWrite(PIN_MOTOR_RIGHT_DN, LOW);
+  analogWrite(PIN_MOTOR_RIGHT_SPEED, 0);
+
+  // Left
+  digitalWrite(PIN_MOTOR_LEFT_UP, LOW);
+  digitalWrite(PIN_MOTOR_LEFT_DN, LOW);
+  analogWrite(PIN_MOTOR_LEFT_SPEED, 0);
+}
+
+// Function to drive one motor set (forward, backward, or stop)
+void MotorSpeed(uint8_t *motor, int speed) {
+  // Make sure speed stays within -100 to 100
+  speed = limitNumber(speed, -100, 100);
+
+  // Convert from 0–100 range to 0–255 PWM range
+  int pwmValue = abs(speed) * 2.55;
+
+  if (speed > 0) {
+    // Forward direction
+    digitalWrite(motor[0], HIGH);
+    digitalWrite(motor[1], LOW);
+    analogWrite(motor[2], pwmValue);
+  } 
+  else if (speed < 0) {
+    // Backward direction
+    digitalWrite(motor[0], LOW);
+    digitalWrite(motor[1], HIGH);
+    analogWrite(motor[2], pwmValue);
+  } 
+  else {
+    // Stop
+    digitalWrite(motor[0], LOW);
+    digitalWrite(motor[1], LOW);
+    analogWrite(motor[2], 0);
+  }
+} 
+
+void setup() {
+  // Set all motor pins as OUTPUT
+  pinMode(PIN_MOTOR_RIGHT_UP, OUTPUT);
+  pinMode(PIN_MOTOR_RIGHT_DN, OUTPUT);
+  pinMode(PIN_MOTOR_LEFT_UP, OUTPUT);
+  pinMode(PIN_MOTOR_LEFT_DN, OUTPUT);
+  pinMode(PIN_MOTOR_RIGHT_SPEED, OUTPUT);
+  pinMode(PIN_MOTOR_LEFT_SPEED, OUTPUT);
+
+  // Start RemoteXY Wi-Fi point
+  RemoteXY_Init();
+
+  // For debugging if needed
+  Serial.begin(9600);
+}
+
+#define JOYSTICK_DEADZONE 10
+
+void loop() {
+  // Keep RemoteXY updated
+  RemoteXY_Handler();
+
+  // -------------------------------
+  // DIFFERENTIAL DRIVE OPTIMIZATION
+  // -------------------------------
+  if (!RemoteXY.connect_flag) {
+    stopMotors();
+    return;
+  }
+  if (RemoteXY.switch_1 == 1) {
+
+  // 1) Read joystick values
+  int turnCommand    = RemoteXY.joystick_1_x; // left(-) / right(+)
+  int forwardCommand = RemoteXY.joystick_1_y; // back(-) / forward(+)
+
+  if (abs(forwardCommand) < JOYSTICK_DEADZONE) {
+        forwardCommand = 0;
+      }
+      if (abs(turnCommand) < JOYSTICK_DEADZONE) {
+        turnCommand = 0;
+      }
+  // end of deadzone logic
+
+  // 2) Mix them so car turns smoothly
+  int leftWheel  = forwardCommand + turnCommand;
+  int rightWheel = forwardCommand - turnCommand;
+
+  // 4) Limit just to be safe
+  leftWheel  = limitNumber(leftWheel,  -100, 100);
+  rightWheel = limitNumber(rightWheel, -100, 100);
+
+  // 5) Send to motors
+  MotorSpeed(LeftMotor,  leftWheel);
+  MotorSpeed(RightMotor, rightWheel);
+
+  // Optional: print to Serial Monitor so you can see what’s happening
+  Serial.print("Left: "); Serial.print(leftWheel);
+  Serial.print("  Right: "); Serial.println(rightWheel);
+
+  } else {
+     // Switch is OFF, so stop both motors
+    MotorSpeed(RightMotor, 0);
+    MotorSpeed(LeftMotor, 0);
+  }
+}
